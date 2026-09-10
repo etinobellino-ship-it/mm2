@@ -1,0 +1,254 @@
+-- ==========================================
+-- MM2 Xeno Executor Script - Ultimate Hub
+-- ==========================================
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+
+-- ==========================================
+-- 🛠 CONFIGURAZIONE (Attiva/Disattiva)
+-- ==========================================
+local Settings = {
+    -- VISUALS
+    EnableESP = true,
+    EnableLineOfSight = true, -- Linee rosse/gialle per nemici
+    EnableXRay = false,      -- Rende tutto trasparente (es. 0.5)
+    ShowDistance = true,     -- Mostra distanza inьетti
+    
+    -- TITOLO E ROLE
+    ShowRoleNames = true,    -- Mostra il ruolo sopra la testa
+    ShowDistanceText = true, -- Mostra distanza come testo
+    
+    -- GIOCATTOLI & MOVIMENTO
+    EnableGodMode = true,
+    EnableFly = false,
+    EnableSpeed = true,
+    SpeedValue = 50,
+    
+    -- SHERIFF (FUNZIONI)
+    EnableSilentAim = true,
+    SilentAimTarget = "Nearest", -- "Nearest" o "Mouse"
+    
+    -- ASSASSINO (FUNZIONI)
+    EnableAutoClick = false,
+    KillRange = 15,
+    
+    -- AUTO FARM
+    EnableAutoFarm = true,
+    AutoFarmSpeed = 20,
+}
+
+-- ==========================================
+-- 1. GOD MODE & CARATTERISTICA
+-- ==========================================
+if Settings.EnableGodMode then
+    task.spawn(function()
+        local Char = LocalPlayer.Character
+        local Humanoid = Char and Char:FindFirstChild("Humanoid")
+        if Humanoid then
+            Humanoid.MaxHealth = math.huge
+            Humanoid.Health = math.huge
+            print("God Mode Attivato")
+        end
+    end)
+end
+
+if Settings.EnableSpeed then
+    task.spawn(function()
+        local Char = LocalPlayer.Character
+        local Humanoid = Char and Char:FindFirstChild("Humanoid")
+        if Humanoid then
+            Humanoid.WalkSpeed = Settings.SpeedValue
+        end
+    end)
+end
+
+-- ==========================================
+-- 2. FLY HACK
+-- ==========================================
+if Settings.EnableFly then
+    local FlyEnabled = false
+    
+    local function ToggleFly()
+        FlyEnabled = not FlyEnabled
+        if FlyEnabled then
+            local Char = LocalPlayer.Character
+            local Root = Char and Char:FindFirstChild("HumanoidRootPart")
+            if Root then
+                Root.Velocity = Vector3.new(0, 0, 0)
+                Workspace.Gravity = 0
+                print("Fly Attivato")
+            end
+        else
+            Workspace.Gravity = 196.2
+            print("Fly Disattivato")
+        end
+    end
+    
+    local function OnInput(input, gameProcessed)
+        if gameProcessed then return end
+        if input.KeyCode == Enum.KeyCode.Space then
+            ToggleFly()
+        end
+    end
+    
+    UserInputService.InputBegan:Connect(OnInput)
+    
+    -- Gestione movimento volo
+    RunService.RenderStepped:Connect(function()
+        if FlyEnabled then
+            local Char = LocalPlayer.Character
+            local Root = Char and Char:FindFirstChild("HumanoidRootPart")
+            if Root then
+                local mouse = LocalPlayer:GetMouse()
+                local direction = Vector3.new(mouse.Hit.p.X - Root.Position.X, 0, mouse.Hit.p.Z - Root.Position.Z)
+                Root:MoveTo(Root.Position + direction * 100)
+            end
+        end
+    end)
+end
+
+-- ==========================================
+-- 3. AUTO FARM (MONETE E CARAMELLE)
+-- ==========================================
+if Settings.EnableAutoFarm then
+    task.spawn(function()
+        while true do
+            task.wait()
+            local Char = LocalPlayer.Character
+            if not Char then continue end
+            
+            local Humanoid = Char:FindFirstChild("Humanoid")
+            if Humanoid.Health <= 0 then continue end
+            
+            local Nearest = nil
+            local MinDist = 1000
+            
+            -- Cerca oggetti (Coin, Candy, ecc.)
+            for _, v in pairs(Workspace:GetDescendants()) do
+                if (v.Name == "Coin" or v.Name == "Candy") and v:IsA("BasePart") then
+                    local dist = (v.Position - Char.PrimaryPart.Position).Magnitude
+                    if dist < MinDist then
+                        MinDist = dist
+                        Nearest = v
+                    end
+                end
+            end
+            
+            if Nearest and MinDist < 500 then
+                Humanoid:MoveTo(Nearest.Position)
+            end
+        end
+    end)
+end
+
+-- ==========================================
+-- 4. ESP & VISUALS (HIGHLIGHT, RAYCAST, ROLE)
+-- ==========================================
+local ESP = {}
+local HighlightFolder = Instance.new("Folder")
+HighlightFolder.Name = "ESP_Highlights"
+HighlightFolder.Parent = LocalPlayer
+
+-- Funzione per rilevare il ruolo
+local function GetRole(Player)
+    local Char = Player.Character
+    if not Char then return "Innocente" end
+    
+    local Backpack = Player.Backpack
+    if Backpack:FindFirstChild("Knife") then return "Assassino" end
+    if Char:FindFirstChild("Gun") or Char:FindFirstChild("GunPart") then return "Sceriffo" end
+    return "Innocente"
+end
+
+-- Loop principale per ESP
+RunService.RenderStepped:Connect(function()
+    if not Settings.EnableESP then return end
+    
+    for _, Player in pairs(Players:GetPlayers()) do
+        if Player == LocalPlayer then continue end
+        
+        local Char = Player.Character
+        if not Char or not Char:FindFirstChild("HumanoidRootPart") then continue end
+        
+        local Role = GetRole(Player)
+        local Root = Char:FindFirstChild("HumanoidRootPart")
+        local Head = Char:FindFirstChild("Head")
+        
+        -- Gestione Colori
+        local Color = Color3.fromRGB(255, 255, 255) -- Default
+        if Role == "Assassino" then Color = Color3.fromRGB(255, 0, 0)
+        elseif Role == "Sceriffo" then Color = Color3.fromRGB(0, 0, 255)
+        else Color = Color3.fromRGB(0, 255, 0) end
+        
+        -- Highlight (Chams)
+        local Highlight = HighlightFolder:FindFirstChild(Player.Name)
+        if not Highlight then
+            Highlight = Instance.new("Highlight")
+            Highlight.Name = Player.Name
+            Highlight.FillColor = Color
+            Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+            Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            Highlight.Adornee = Char
+            Highlight.Parent = HighlightFolder
+        else
+            Highlight.FillColor = Color
+            Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        end
+        
+        -- Line of Sight (Raycast)
+        if Settings.EnableLineOfSight then
+            local IsVisible = false
+            local RaycastParams = RaycastParams.new()
+            RaycastParams.FilterDescendantsInstances = {Char}
+            RaycastParams.FilterType = Enum.RaycastFilterType.Exclude
+            
+            local Ray = Workspace:Raycast(Root.Position, (Head.Position - Root.Position).Unit * 8, RaycastParams)
+            if Ray then
+                if Ray.Instance and Ray.Instance:IsDescendantOf(Char) then IsVisible = true end
+            else
+                IsVisible = true
+            end
+            
+            -- Disegna la linea (Semplice Line)
+            if IsVisible then
+                -- Verde (Linea di vista)
+                -- Se vuoi una linea fisica, servirebbe un Beamservice, ma qui usiamo un semplice trucco VFX
+            else
+                -- Rosso (Nascosto)
+                -- Qui potresti creare una Linea di collisione
+            end
+        end
+        
+        -- Distanza Tracker
+        if Settings.ShowDistanceText then
+            local dist = math.floor((Root.Position - LocalPlayer.Character.PrimaryPart.Position).Magnitude)
+            if dist < 100 then
+                -- Disegna testo (Richiede TextLabel adornee, qui semplifichiamo stampando in console o creando un oggetto)
+                -- In uno script completo, useremmo una GUI, ma per Xeno usiamo un trucco veloce:
+                -- Creiamo o aggiorniamo un oggetto TextLabel nella root
+                local TextObj = Instance.new("BillboardGui")
+                TextObj.Name = "Dist_" .. Player.Name
+                TextObj.Adornee = Head
+                TextObj.AlwaysOnTop = true
+                TextObj.Size = UDim2.new(0, 50, 0, 20)
+                TextObj.StudsOffset = Vector3.new(0, 2, 0)
+                
+                local TextLabel = Instance.new("TextLabel")
+                TextLabel.Parent = TextObj
+                TextLabel.Size = UDim2.new(1, 0, 1, 0)
+                TextLabel.BackgroundTransparency = 1
+                TextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+                TextLabel.TextStrokeTransparency = 0.5
+                TextLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+                TextLabel.TextScaled = true
+                TextLabel.Text = dist .. " studs"
+                TextLabel.TextTransparency = 1 -- Nascondo finché non è vicino
+                
+                -- Fade in/out effetto
+                TweenService:Create(TextLabel, TweenInfo.fromScript(0.5),
