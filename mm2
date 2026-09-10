@@ -1,544 +1,249 @@
---[[
-    MM2 Ultimate - Xeno Compatible
-    Version: 5.0
-]]
-
-print("Caricamento MM2 Ultimate...")
-
--- Services
+-- ==========================================
+-- MM2 Xeno Executor - Script Ottimizzato
+-- ==========================================
 local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
-local VirtualUser = game:GetService("VirtualUser")
+local Workspace = game:GetService("Workspace")
+local Camera = workspace.CurrentCamera
 
--- Player
-local LocalPlayer = Players.LocalPlayer
-local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local Humanoid = Character:WaitForChild("Humanoid")
-local HRP = Character:WaitForChild("HumanoidRootPart")
+-- Gestione errore iniziale
+local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local mouse = LocalPlayer:GetMouse()
 
--- Config
-local Config = {
-    ESP = {Enabled = false, ShowDistance = true},
-    KillAura = {Enabled = false, Range = 20},
-    AutoFarm = {Enabled = false, Speed = 50, NoClip = false},
-    Movement = {Speed = 16, Jump = 50, Fly = false, NoClip = false},
-    AntiAFK = true
+-- ==========================================
+-- 🎛️ CONFIGURAZIONE
+-- ==========================================
+local Settings = {
+    GodMode = true,
+    Fly = false,
+    Speed = true,
+    SpeedVal = 50,
+    AutoFarm = true,
+    AutoFarmKey = Enum.KeyCode.G,
+    AutoClick = false,
+    ESP = true,
+    ShowDistance = true,
+    SilentAim = false,
+    KillAuraRange = 15,
 }
 
--- Variables
-local ESPObjects = {}
-local FlyConnection = nil
-local FarmConnection = nil
+-- ==========================================
+-- 🛡️ GOD MODE & SPAZIO
+-- ==========================================
+local function setupCharacter()
+    local hum = char:WaitForChild("Humanoid")
+    local root = char:WaitForChild("HumanoidRootPart")
+    
+    if Settings.GodMode then
+        hum.MaxHealth = math.huge
+        hum.Health = math.huge
+    end
+    
+    if Settings.Speed then
+        hum.WalkSpeed = Settings.SpeedVal
+    end
+    
+    flyEnabled = false
+end
 
--- UI
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "MM2Ultimate"
-ScreenGui.Parent = CoreGui
+char.ChildAdded:Connect(setupCharacter)
+setupCharacter()
 
-local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0, 550, 0, 350)
-Main.Position = UDim2.new(0.5, -275, 0.5, -175)
-Main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-Main.BorderSizePixel = 0
-Main.Active = true
-Main.Draggable = true
-Main.Parent = ScreenGui
-
-Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 8)
-
--- Title Bar
-local TitleBar = Instance.new("Frame")
-TitleBar.Size = UDim2.new(1, 0, 0, 35)
-TitleBar.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-TitleBar.Parent = Main
-
-Instance.new("UICorner", TitleBar).CornerRadius = UDim.new(0, 8)
-
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -40, 1, 0)
-Title.Position = UDim2.new(0, 10, 0, 0)
-Title.BackgroundTransparency = 1
-Title.Text = "MM2 Ultimate Hub"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 16
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Parent = TitleBar
-
--- Close Button
-local Close = Instance.new("TextButton")
-Close.Size = UDim2.new(0, 30, 0, 30)
-Close.Position = UDim2.new(1, -35, 0, 2.5)
-Close.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-Close.Text = "X"
-Close.TextColor3 = Color3.fromRGB(255, 255, 255)
-Close.Font = Enum.Font.GothamBold
-Close.Parent = TitleBar
-Instance.new("UICorner", Close).CornerRadius = UDim.new(0, 6)
-
-Close.MouseButton1Click:Connect(function()
-    ScreenGui:Destroy()
+-- ==========================================
+-- 🚀 FLY HACK (Premi 'F' per attivare/disattivare)
+-- ==========================================
+local flyEnabled = false
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.F then
+        flyEnabled = not flyEnabled
+        if flyEnabled then
+            char:WaitForChild("HumanoidRootPart").Velocity = Vector3.new(0,0,0)
+            Workspace.Gravity = 0
+        else
+            Workspace.Gravity = 196.2
+        end
+    end
 end)
 
--- Tab Buttons
-local Tabs = {"ESP", "Murderer", "Farm", "Movement", "Misc"}
-local CurrentTab = "ESP"
-local TabButtons = {}
-local TabFrames = {}
-
-local ContentFrame = Instance.new("Frame")
-ContentFrame.Size = UDim2.new(1, -20, 1, -100)
-ContentFrame.Position = UDim2.new(0, 10, 0, 90)
-ContentFrame.BackgroundTransparency = 1
-ContentFrame.Parent = Main
-
-for i, name in ipairs(Tabs) do
-    -- Button
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, 100, 0, 30)
-    btn.Position = UDim2.new(0, 10 + (i-1)*105, 0, 50)
-    btn.BackgroundColor3 = name == CurrentTab and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(40, 40, 40)
-    btn.Text = name
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 14
-    btn.Parent = Main
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+-- ==========================================
+-- 🪙 AUTO FARM (Premi 'G' per attivare/disattivare)
+-- ==========================================
+local function findNearestItem()
+    local nearest = nil
+    local minDist = 500
+    local itemTypes = {"Coin", "Candy", "Crown", "Key"}
     
-    TabButtons[name] = btn
-    
-    -- Frame
-    local frame = Instance.new("ScrollingFrame")
-    frame.Size = UDim2.new(1, 0, 1, 0)
-    frame.BackgroundTransparency = 1
-    frame.ScrollBarThickness = 4
-    frame.Visible = name == CurrentTab
-    frame.Parent = ContentFrame
-    
-    local layout = Instance.new("UIListLayout")
-    layout.Padding = UDim.new(0, 8)
-    layout.Parent = frame
-    
-    TabFrames[name] = frame
-    
-    btn.MouseButton1Click:Connect(function()
-        for _, f in pairs(TabFrames) do f.Visible = false end
-        for _, b in pairs(TabButtons) do b.BackgroundColor3 = Color3.fromRGB(40, 40, 40) end
-        frame.Visible = true
-        btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-        CurrentTab = name
-    end)
-end
-
--- UI Helpers
-local function CreateToggle(parent, text, default, callback)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, 0, 0, 35)
-    frame.BackgroundTransparency = 1
-    frame.Parent = parent
-    
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.65, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.Text = text
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 14
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = frame
-    
-    local toggle = Instance.new("TextButton")
-    toggle.Size = UDim2.new(0, 60, 0, 25)
-    toggle.Position = UDim2.new(0.7, 0, 0.5, -12.5)
-    toggle.BackgroundColor3 = default and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(255, 50, 50)
-    toggle.Text = default and "ON" or "OFF"
-    toggle.TextColor3 = Color3.fromRGB(255, 255, 255)
-    toggle.Font = Enum.Font.GothamBold
-    toggle.Parent = frame
-    Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 4)
-    
-    local state = default
-    toggle.MouseButton1Click:Connect(function()
-        state = not state
-        toggle.BackgroundColor3 = state and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(255, 50, 50)
-        toggle.Text = state and "ON" or "OFF"
-        callback(state)
-    end)
-end
-
-local function CreateSlider(parent, text, min, max, default, callback)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, 0, 0, 50)
-    frame.BackgroundTransparency = 1
-    frame.Parent = parent
-    
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 0, 20)
-    label.BackgroundTransparency = 1
-    label.Text = text .. ": " .. default
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 14
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = frame
-    
-    local sliderBg = Instance.new("Frame")
-    sliderBg.Size = UDim2.new(1, 0, 0, 8)
-    sliderBg.Position = UDim2.new(0, 0, 0, 35)
-    sliderBg.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    sliderBg.Parent = frame
-    Instance.new("UICorner", sliderBg).CornerRadius = UDim.new(0, 4)
-    
-    local fill = Instance.new("Frame")
-    fill.Size = UDim2.new((default-min)/(max-min), 0, 1, 0)
-    fill.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
-    fill.Parent = sliderBg
-    Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 4)
-    
-    local dragging = false
-    
-    sliderBg.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-        end
-    end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local pos = math.clamp((input.Position.X - sliderBg.AbsolutePosition.X) / sliderBg.AbsoluteSize.X, 0, 1)
-            local val = math.floor(min + (max-min) * pos)
-            fill.Size = UDim2.new(pos, 0, 1, 0)
-            label.Text = text .. ": " .. val
-            callback(val)
-        end
-    end)
-    
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
-        end
-    end)
-end
-
-local function CreateButton(parent, text, callback)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0, 35)
-    btn.BackgroundColor3 = Color3.fromRGB(50, 100, 200)
-    btn.Text = text
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 14
-    btn.Parent = parent
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-    
-    btn.MouseButton1Click:Connect(callback)
-    return btn
-end
-
--- ESP Functions
-local function GetRole(player)
-    local char = player.Character
-    if not char then return "Innocent" end
-    local backpack = player:FindFirstChild("Backpack")
-    if (backpack and backpack:FindFirstChild("Knife")) or char:FindFirstChild("Knife") then
-        return "Murderer"
-    elseif (backpack and backpack:FindFirstChild("Gun")) or char:FindFirstChild("Gun") then
-        return "Sheriff"
-    end
-    return "Innocent"
-end
-
-local function CreateESP(player)
-    if player == LocalPlayer or ESPObjects[player] then return end
-    
-    local esp = {}
-    
-    local highlight = Instance.new("Highlight")
-    highlight.FillTransparency = 0.6
-    highlight.OutlineTransparency = 0
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.Parent = CoreGui
-    esp.Highlight = highlight
-    
-    local billboard = Instance.new("BillboardGui")
-    billboard.AlwaysOnTop = true
-    billboard.Size = UDim2.new(0, 200, 0, 50)
-    billboard.StudsOffset = Vector3.new(0, 2.5, 0)
-    billboard.Parent = CoreGui
-    esp.Billboard = billboard
-    
-    local name = Instance.new("TextLabel")
-    name.Size = UDim2.new(1, 0, 0.5, 0)
-    name.BackgroundTransparency = 1
-    name.TextColor3 = Color3.new(1, 1, 1)
-    name.TextStrokeTransparency = 0
-    name.Font = Enum.Font.GothamBold
-    name.TextSize = 14
-    name.Parent = billboard
-    
-    local dist = Instance.new("TextLabel")
-    dist.Size = UDim2.new(1, 0, 0.5, 0)
-    dist.Position = UDim2.new(0, 0, 0.5, 0)
-    dist.BackgroundTransparency = 1
-    dist.TextColor3 = Color3.new(1, 1, 1)
-    dist.TextStrokeTransparency = 0
-    dist.Font = Enum.Font.Gotham
-    dist.TextSize = 12
-    dist.Parent = billboard
-    
-    esp.NameLabel = name
-    esp.DistLabel = dist
-    ESPObjects[player] = esp
-end
-
-local function UpdateESP()
-    for player, esp in pairs(ESPObjects) do
-        if not player.Parent then
-            pcall(function()
-                esp.Highlight:Destroy()
-                esp.Billboard:Destroy()
-            end)
-            ESPObjects[player] = nil
-            continue
-        end
-        
-        local char = player.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        if not root then continue end
-        
-        local role = GetRole(player)
-        local color = role == "Murderer" and Color3.fromRGB(255, 0, 0) or 
-                     role == "Sheriff" and Color3.fromRGB(0, 100, 255) or 
-                     Color3.fromRGB(0, 255, 100)
-        
-        pcall(function()
-            esp.Highlight.FillColor = color
-            esp.Highlight.OutlineColor = color
-            esp.Highlight.Adornee = char
-            esp.Billboard.Adornee = root
-            esp.NameLabel.Text = player.Name .. " [" .. role .. "]"
-            esp.NameLabel.TextColor3 = color
-            
-            if Config.ESP.ShowDistance then
-                local d = math.floor((HRP.Position - root.Position).Magnitude)
-                esp.DistLabel.Text = d .. " studs"
-                esp.DistLabel.Visible = true
-            else
-                esp.DistLabel.Visible = false
-            end
-        end)
-    end
-end
-
--- Features
-local function KillAura()
-    if not Config.KillAura.Enabled then return end
-    local knife = Character:FindFirstChild("Knife")
-    if not knife then return end
-    
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local root = player.Character:FindFirstChild("HumanoidRootPart")
-            if root then
-                local dist = (HRP.Position - root.Position).Magnitude
-                if dist <= Config.KillAura.Range then
-                    pcall(function()
-                        knife:Activate()
-                    end)
+    for _, type in pairs(itemTypes) do
+        for _, obj in pairs(Workspace:GetDescendants()) do
+            if obj.Name == type and obj:IsA("BasePart") then
+                local dist = (obj.Position - char.PrimaryPart.Position).Magnitude
+                if dist < minDist then
+                    minDist = dist
+                    nearest = obj
                 end
             end
         end
     end
+    return nearest
 end
 
-local function AutoFarm()
-    if not Config.AutoFarm.Enabled then return end
-    
-    local coins = Workspace:FindFirstChild("CoinContainer")
-    if coins then
-        for _, coin in ipairs(coins:GetChildren()) do
-            if coin:IsA("BasePart") then
-                if Config.AutoFarm.NoClip then
-                    HRP.CFrame = coin.CFrame
-                else
-                    local tween = TweenService:Create(HRP, TweenInfo.new(0.5), {CFrame = coin.CFrame})
-                    tween:Play()
-                    tween.Completed:Wait()
+if Settings.AutoFarm then
+    UserInputService.InputBegan:Connect(function(input)
+        if input.KeyCode == Settings.AutoFarmKey then
+            while Settings.AutoFarm do
+                local item = findNearestItem()
+                if item then
+                    char:WaitForChild("Humanoid"):MoveTo(item.Position)
                 end
                 task.wait(0.1)
             end
         end
-    end
+    end)
 end
 
-local function UpdateMovement()
-    if Humanoid then
-        Humanoid.WalkSpeed = Config.Movement.Speed
-        Humanoid.JumpPower = Config.Movement.Jump
-    end
+-- ==========================================
+-- 👁️ ESP & VISUALS SYSTEM
+-- ==========================================
+local ESPFolder = Instance.new("Folder")
+ESPFolder.Name = "ESP_Highlights"
+ESPFolder.Parent = LocalPlayer
+
+local function getRole(player)
+    local bp = player:FindFirstChild("Backpack")
+    if bp and bp:FindFirstChild("Knife") then return "Assassino" end
+    local char = player.Character
+    if char and char:FindFirstChild("Gun") then return "Sceriffo" end
+    return "Innocente"
+end
+
+RunService.RenderStepped:Connect(function()
+    if not Settings.ESP then return end
     
-    if Config.Movement.NoClip then
-        for _, part in ipairs(Character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
+    for _, p in pairs(Players:GetPlayers()) do
+        if p == LocalPlayer then continue end
+        local c = p.Character
+        if not c or not c:FindFirstChild("HumanoidRootPart") then continue end
+        
+        local role = getRole(p)
+        local root = c:FindFirstChild("HumanoidRootPart")
+        local head = c:FindFirstChild("Head")
+        
+        -- Colori basati sul ruolo
+        local color = Color3.fromRGB(255, 255, 255)
+        if role == "Assassino" then color = Color3.fromRGB(255, 0, 0)
+        elseif role == "Sceriffo" then color = Color3.fromRGB(0, 0, 255)
+        else color = Color3.fromRGB(0, 255, 0) end
+        
+        -- Highlight (Chams)
+        local hl = ESPFolder:FindFirstChild(p.Name)
+        if not hl then
+            hl = Instance.new("Highlight")
+            hl.Name = p.Name
+            hl.FillColor = color
+            hl.OutlineColor = color
+            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.FillTransparency = 0.6
+            hl.Parent = ESPFolder
+        end
+        hl.Adornee = c
+        hl.FillColor = color
+        
+        -- Line of Sight (Raycast)
+        local rayParams = RaycastParams.new()
+        rayParams.FilterDescendantsInstances = {c}
+        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+        local ray = Workspace:Raycast(root.Position, (head.Position - root.Position).Unit * 10, rayParams)
+        
+        local dist = (root.Position - char.PrimaryPart.Position).Magnitude
+        
+        -- Disegna linea di distanza (Semplice Part come Line)
+        local line = c:FindFirstChild("DistLine_" .. p.Name)
+        if not line then
+            line = Instance.new("Part")
+            line.Name = "DistLine_" .. p.Name
+            line.Shape = Enum.PartType.Cylinder
+            line.Size = Vector3.new(0.5, 0.5, 1)
+            line.Anchored = true
+            line.CanCollide = false
+            line.Parent = c
+        end
+        
+        -- Orienta la linea
+        line.CFrame = CFrame.lookAt(root.Position, head.Position) * CFrame.new(0, 0, 5)
+        
+        if ray then
+            line.Color = Color3.fromRGB(255, 0, 0) -- Rosso (Nascosto)
+            line.Transparency = 0.5
+        else
+            line.Color = Color3.fromRGB(0, 255, 0) -- Verde (Visibile)
+            line.Transparency = 0.2
+        end
+        
+        -- Distanza Tracker Text
+        if Settings.ShowDistance and dist < 100 then
+            local billboard = c:FindFirstChild("DistText_" .. p.Name)
+            if not billboard then
+                billboard = Instance.new("BillboardGui")
+                billboard.Name = "DistText_" .. p.Name
+                billboard.Size = UDim2.new(0, 100, 0, 30)
+                billboard.StudsOffset = Vector3.new(0, 4, 0)
+                billboard.Parent = head
+            end
+            local txt = billboard:FindFirstChild("DistanceLabel")
+            if not txt then
+                txt = Instance.new("TextLabel")
+                txt.Name = "DistanceLabel"
+                txt.Size = UDim2.new(1, 0, 1, 0)
+                txt.BackgroundTransparency = 1
+                txt.TextColor3 = Color3.fromRGB(255, 255, 255)
+                txt.TextStrokeTransparency = 0.5
+                txt.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+                txt.TextScaled = true
+                txt.Parent = billboard
+            end
+            txt.Text = math.floor(dist) .. " studs"
+        end
+    end
+end)
+
+-- ==========================================
+-- 🗡️ AUTO CLICK & SILENT AIM
+-- ==========================================
+UserInputService.InputBegan:Connect(function(input)
+    if not Settings.AutoClick then return end
+    
+    -- Controlla arma attuale
+    local weapon = char:FindFirstChildOfClass("Tool")
+    if not weapon or weapon.Name ~= "Knife" then return end
+    
+    local hum = char:WaitForChild("Humanoid")
+    if hum.Health <= 0 then return end
+    
+    -- Trova nemici vicini
+    local nearest = nil
+    local minDist = Settings.KillAuraRange
+    
+    for _, p in pairs(Players:GetPlayers()) do
+        if p == LocalPlayer then continue end
+        local role = getRole(p)
+        if role == "Innocente" then
+            local dist = (p.Character.PrimaryPart.Position - char.PrimaryPart.Position).Magnitude
+            if dist < minDist then
+                minDist = dist
+                nearest = p
             end
         end
     end
     
-    if Config.Movement.Fly then
-        if not FlyConnection then
-            FlyConnection = RunService.RenderStepped:Connect(function()
-                local cam = workspace.CurrentCamera.CFrame
-                local move = Vector3.new()
-                
-                if UserInputService:IsKeyDown(Enum.KeyCode.W) then move += cam.LookVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.S) then move -= cam.LookVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.A) then move -= cam.RightVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += cam.RightVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0, 1, 0) end
-                if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then move -= Vector3.new(0, 1, 0) end
-                
-                if move.Magnitude > 0 then
-                    HRP.Velocity = move.Unit * 100
-                else
-                    HRP.Velocity = Vector3.new(0, 0, 0)
-                end
-                Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-            end)
-        end
-    elseif FlyConnection then
-        FlyConnection:Disconnect()
-        FlyConnection = nil
-    end
-end
-
--- UI Setup
-
--- ESP Tab
-CreateToggle(TabFrames["ESP"], "Player ESP", false, function(v)
-    Config.ESP.Enabled = v
-    if v then
-        for _, p in ipairs(Players:GetPlayers()) do CreateESP(p) end
-    else
-        for _, esp in pairs(ESPObjects) do
-            pcall(function()
-                esp.Highlight:Destroy()
-                esp.Billboard:Destroy()
-            end)
-        end
-        ESPObjects = {}
+    if nearest then
+        -- Auto Click
+        mouse.Button1Down:Fire()
+        mouse.Button1Up:Fire()
     end
 end)
 
-CreateToggle(TabFrames["ESP"], "Show Distance", true, function(v)
-    Config.ESP.ShowDistance = v
-end)
-
--- Murderer Tab
-CreateToggle(TabFrames["Murderer"], "Kill Aura", false, function(v)
-    Config.KillAura.Enabled = v
-end)
-
-CreateSlider(TabFrames["Murderer"], "Aura Range", 5, 30, 20, function(v)
-    Config.KillAura.Range = v
-end)
-
-CreateButton(TabFrames["Murderer"], "Teleport to All", function()
-    local old = HRP.CFrame
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then
-            HRP.CFrame = p.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, 2)
-            task.wait(0.2)
-        end
-    end
-    HRP.CFrame = old
-end)
-
--- Farm Tab
-CreateToggle(TabFrames["Farm"], "Auto Farm Coins", false, function(v)
-    Config.AutoFarm.Enabled = v
-end)
-
-CreateToggle(TabFrames["Farm"], "No Clip (Farm)", false, function(v)
-    Config.AutoFarm.NoClip = v
-end)
-
-CreateSlider(TabFrames["Farm"], "Farm Speed", 10, 200, 50, function(v)
-    Config.AutoFarm.Speed = v
-end)
-
--- Movement Tab
-CreateSlider(TabFrames["Movement"], "WalkSpeed", 16, 500, 16, function(v)
-    Config.Movement.Speed = v
-end)
-
-CreateSlider(TabFrames["Movement"], "JumpPower", 50, 500, 50, function(v)
-    Config.Movement.Jump = v
-end)
-
-CreateToggle(TabFrames["Movement"], "Fly", false, function(v)
-    Config.Movement.Fly = v
-end)
-
-CreateToggle(TabFrames["Movement"], "No Clip", false, function(v)
-    Config.Movement.NoClip = v
-end)
-
--- Misc Tab
-CreateToggle(TabFrames["Misc"], "Anti AFK", true, function(v)
-    Config.AntiAFK = v
-end)
-
-CreateButton(TabFrames["Misc"], "Destroy GUI", function()
-    ScreenGui:Destroy()
-end)
-
--- Loops
-RunService.RenderStepped:Connect(function()
-    if Config.ESP.Enabled then UpdateESP() end
-    if Config.KillAura.Enabled then KillAura() end
-    UpdateMovement()
-end)
-
-task.spawn(function()
-    while true do
-        if Config.AutoFarm.Enabled then AutoFarm() end
-        task.wait(0.5)
-    end
-end)
-
--- Events
-Players.PlayerAdded:Connect(function(p)
-    if Config.ESP.Enabled then CreateESP(p) end
-end)
-
-Players.PlayerRemoving:Connect(function(p)
-    if ESPObjects[p] then
-        pcall(function()
-            ESPObjects[p].Highlight:Destroy()
-            ESPObjects[p].Billboard:Destroy()
-        end)
-        ESPObjects[p] = nil
-    end
-end)
-
-LocalPlayer.CharacterAdded:Connect(function(char)
-    Character = char
-    Humanoid = char:WaitForChild("Humanoid")
-    HRP = char:WaitForChild("HumanoidRootPart")
-end)
-
--- Anti AFK
-if Config.AntiAFK then
-    LocalPlayer.Idled:Connect(function()
-        VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-        task.wait(1)
-        VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-    end)
-end
-
-print("MM2 Ultimate caricato con successo!")
+print("[Xeno MM2] Script Caricato con successo!")
