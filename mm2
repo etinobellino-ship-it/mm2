@@ -1,254 +1,815 @@
--- ==========================================
--- MM2 Xeno Executor Script - Ultimate Hub
--- ==========================================
+--[[
+    MM2 ULTIMATE SCRIPT - Xeno Compatible
+    Version: 4.2.1
+    Features: ESP, Role Reveal, Kill Aura, Silent Aim, Auto Farm, Anti-Detection
+]]
 
+-- Services
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local Lighting = game:GetService("Lighting")
 
--- ==========================================
--- 🛠 CONFIGURAZIONE (Attiva/Disattiva)
--- ==========================================
-local Settings = {
-    -- VISUALS
-    EnableESP = true,
-    EnableLineOfSight = true, -- Linee rosse/gialle per nemici
-    EnableXRay = false,      -- Rende tutto trasparente (es. 0.5)
-    ShowDistance = true,     -- Mostra distanza inьетti
-    
-    -- TITOLO E ROLE
-    ShowRoleNames = true,    -- Mostra il ruolo sopra la testa
-    ShowDistanceText = true, -- Mostra distanza come testo
-    
-    -- GIOCATTOLI & MOVIMENTO
-    EnableGodMode = true,
-    EnableFly = false,
-    EnableSpeed = true,
-    SpeedValue = 50,
-    
-    -- SHERIFF (FUNZIONI)
-    EnableSilentAim = true,
-    SilentAimTarget = "Nearest", -- "Nearest" o "Mouse"
-    
-    -- ASSASSINO (FUNZIONI)
-    EnableAutoClick = false,
-    KillRange = 15,
-    
-    -- AUTO FARM
-    EnableAutoFarm = true,
-    AutoFarmSpeed = 20,
+-- Local Player
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild("Humanoid")
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+
+-- Game References
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local GameData = Workspace:WaitForChild("Game")
+local Map = Workspace:WaitForChild("Map")
+
+-- Configuration
+local Config = {
+    ESP = {
+        Enabled = true,
+        MurdererColor = Color3.fromRGB(255, 0, 0),
+        SheriffColor = Color3.fromRGB(0, 100, 255),
+        InnocentColor = Color3.fromRGB(0, 255, 100),
+        Distance = true,
+        Tracers = true,
+        Boxes = true
+    },
+    KillAura = {
+        Enabled = false,
+        Range = 20,
+        AutoThrow = true
+    },
+    SilentAim = {
+        Enabled = false,
+        HitPart = "Head",
+        FOV = 150
+    },
+    AutoFarm = {
+        Enabled = false,
+        Speed = 50,
+        NoClip = true,
+        CollectCoins = true,
+        CollectGuns = true
+    },
+    Movement = {
+        Speed = 100,
+        JumpPower = 100,
+        Fly = false,
+        FlySpeed = 3,
+        NoClip = false,
+        GodMode = false
+    },
+    AntiDetection = {
+        AntiAFK = true,
+        StreamerMode = false,
+        AutoLeaveStaff = true,
+        HideChat = false
+    },
+    Trolling = {
+        FlingAll = false,
+        LagServer = false,
+        BlindAll = false
+    }
 }
 
--- ==========================================
--- 1. GOD MODE & CARATTERISTICA
--- ==========================================
-if Settings.EnableGodMode then
-    task.spawn(function()
-        local Char = LocalPlayer.Character
-        local Humanoid = Char and Char:FindFirstChild("Humanoid")
-        if Humanoid then
-            Humanoid.MaxHealth = math.huge
-            Humanoid.Health = math.huge
-            print("God Mode Attivato")
-        end
-    end)
+-- GUI Library (OrionLib style)
+local OrionLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Orion/main/source"))()
+local Window = OrionLib:MakeWindow({
+    Name = "MM2 Ultimate Hub",
+    HidePremium = false,
+    SaveConfig = true,
+    ConfigFolder = "MM2Ultimate"
+})
+
+-- Variables
+local ESPObjects = {}
+local RoleData = {}
+local IsMurderer = false
+local IsSheriff = false
+local FlyConnection = nil
+local NoClipConnection = nil
+local StaffIds = {1, 2, 3} -- Placeholder per ID staff
+
+-- Utility Functions
+local function GetDistance(pos1, pos2)
+    return (pos1 - pos2).Magnitude
 end
 
-if Settings.EnableSpeed then
-    task.spawn(function()
-        local Char = LocalPlayer.Character
-        local Humanoid = Char and Char:FindFirstChild("Humanoid")
-        if Humanoid then
-            Humanoid.WalkSpeed = Settings.SpeedValue
-        end
-    end)
-end
-
--- ==========================================
--- 2. FLY HACK
--- ==========================================
-if Settings.EnableFly then
-    local FlyEnabled = false
+local function GetRole(player)
+    local char = player.Character
+    if not char then return "Innocent" end
     
-    local function ToggleFly()
-        FlyEnabled = not FlyEnabled
-        if FlyEnabled then
-            local Char = LocalPlayer.Character
-            local Root = Char and Char:FindFirstChild("HumanoidRootPart")
-            if Root then
-                Root.Velocity = Vector3.new(0, 0, 0)
-                Workspace.Gravity = 0
-                print("Fly Attivato")
-            end
+    local backpack = player:FindFirstChild("Backpack")
+    local knife = (backpack and backpack:FindFirstChild("Knife")) or char:FindFirstChild("Knife")
+    local gun = (backpack and backpack:FindFirstChild("Gun")) or char:FindFirstChild("Gun")
+    
+    if knife then return "Murderer" end
+    if gun then return "Sheriff" end
+    return "Innocent"
+end
+
+-- ESP System
+local function CreateESP(player)
+    if player == LocalPlayer then return end
+    
+    local esp = {
+        Box = nil,
+        Tracer = nil,
+        Name = nil,
+        Distance = nil,
+        Highlight = nil
+    }
+    
+    -- Highlight (Chams)
+    local highlight = Instance.new("Highlight")
+    highlight.Name = player.Name .. "_ESP"
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Parent = CoreGui
+    
+    -- Billboard
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = player.Name .. "_Billboard"
+    billboard.AlwaysOnTop = true
+    billboard.Size = UDim2.new(0, 200, 0, 50)
+    billboard.StudsOffset = Vector3.new(0, 3, 0)
+    billboard.Parent = CoreGui
+    
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextColor3 = Color3.new(1, 1, 1)
+    nameLabel.TextStrokeTransparency = 0
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextSize = 14
+    nameLabel.Parent = billboard
+    
+    local distLabel = Instance.new("TextLabel")
+    distLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    distLabel.Position = UDim2.new(0, 0, 0.5, 0)
+    distLabel.BackgroundTransparency = 1
+    distLabel.TextColor3 = Color3.new(1, 1, 1)
+    distLabel.TextStrokeTransparency = 0
+    distLabel.Font = Enum.Font.Gotham
+    distLabel.TextSize = 12
+    distLabel.Parent = billboard
+    
+    esp.Highlight = highlight
+    esp.Billboard = billboard
+    esp.NameLabel = nameLabel
+    esp.DistLabel = distLabel
+    
+    ESPObjects[player] = esp
+end
+
+local function UpdateESP()
+    for player, esp in pairs(ESPObjects) do
+        if not player.Parent then
+            esp.Highlight:Destroy()
+            esp.Billboard:Destroy()
+            ESPObjects[player] = nil
+            continue
+        end
+        
+        local char = player.Character
+        if not char then continue end
+        
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root then continue end
+        
+        local role = GetRole(player)
+        local color = Config.ESP.InnocentColor
+        
+        if role == "Murderer" then
+            color = Config.ESP.MurdererColor
+        elseif role == "Sheriff" then
+            color = Config.ESP.SheriffColor
+        end
+        
+        esp.Highlight.FillColor = color
+        esp.Highlight.OutlineColor = color
+        esp.Highlight.Adornee = char
+        
+        esp.Billboard.Adornee = root
+        esp.NameLabel.Text = player.Name .. " [" .. role .. "]"
+        esp.NameLabel.TextColor3 = color
+        
+        if Config.ESP.Distance then
+            local dist = math.floor(GetDistance(HumanoidRootPart.Position, root.Position))
+            esp.DistLabel.Text = dist .. " studs"
+            esp.DistLabel.Visible = true
         else
-            Workspace.Gravity = 196.2
-            print("Fly Disattivato")
+            esp.DistLabel.Visible = false
+        end
+        
+        -- Line of Sight Raycast
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+        
+        local direction = (root.Position - HumanoidRootPart.Position).Unit * 1000
+        local raycastResult = Workspace:Raycast(HumanoidRootPart.Position, direction, raycastParams)
+        
+        if raycastResult and raycastResult.Instance:IsDescendantOf(char) then
+            esp.NameLabel.TextColor3 = Color3.fromRGB(0, 255, 0) -- Line of sight (green)
+        else
+            esp.NameLabel.TextColor3 = color -- Behind wall
         end
     end
-    
-    local function OnInput(input, gameProcessed)
-        if gameProcessed then return end
-        if input.KeyCode == Enum.KeyCode.Space then
-            ToggleFly()
-        end
-    end
-    
-    UserInputService.InputBegan:Connect(OnInput)
-    
-    -- Gestione movimento volo
-    RunService.RenderStepped:Connect(function()
-        if FlyEnabled then
-            local Char = LocalPlayer.Character
-            local Root = Char and Char:FindFirstChild("HumanoidRootPart")
-            if Root then
-                local mouse = LocalPlayer:GetMouse()
-                local direction = Vector3.new(mouse.Hit.p.X - Root.Position.X, 0, mouse.Hit.p.Z - Root.Position.Z)
-                Root:MoveTo(Root.Position + direction * 100)
-            end
-        end
-    end)
 end
 
--- ==========================================
--- 3. AUTO FARM (MONETE E CARAMELLE)
--- ==========================================
-if Settings.EnableAutoFarm then
-    task.spawn(function()
-        while true do
-            task.wait()
-            local Char = LocalPlayer.Character
-            if not Char then continue end
+-- Role Detection
+local function DetectRoles()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local role = GetRole(player)
+            RoleData[player] = role
             
-            local Humanoid = Char:FindFirstChild("Humanoid")
-            if Humanoid.Health <= 0 then continue end
-            
-            local Nearest = nil
-            local MinDist = 1000
-            
-            -- Cerca oggetti (Coin, Candy, ecc.)
-            for _, v in pairs(Workspace:GetDescendants()) do
-                if (v.Name == "Coin" or v.Name == "Candy") and v:IsA("BasePart") then
-                    local dist = (v.Position - Char.PrimaryPart.Position).Magnitude
-                    if dist < MinDist then
-                        MinDist = dist
-                        Nearest = v
+            if player == LocalPlayer then
+                IsMurderer = (role == "Murderer")
+                IsSheriff = (role == "Sheriff")
+            end
+        end
+    end
+end
+
+-- Kill Aura (Murderer)
+local function KnifeAura()
+    if not IsMurderer or not Config.KillAura.Enabled then return end
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local root = player.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                local dist = GetDistance(HumanoidRootPart.Position, root.Position)
+                if dist <= Config.KillAura.Range then
+                    -- Trigger knife hit
+                    local knife = LocalPlayer.Character:FindFirstChild("Knife")
+                    if knife then
+                        local args = {
+                            [1] = player.Character:FindFirstChild("Humanoid"),
+                            [2] = root.Position
+                        }
+                        
+                        -- RemoteEvent hooking
+                        local success, err = pcall(function()
+                            Remotes:WaitForChild("Throw"):FireServer(unpack(args))
+                        end)
                     end
                 end
             end
-            
-            if Nearest and MinDist < 500 then
-                Humanoid:MoveTo(Nearest.Position)
+        end
+    end
+end
+
+-- Silent Aim (Sheriff)
+local function SilentAim()
+    if not IsSheriff or not Config.SilentAim.Enabled then return end
+    
+    local closestPlayer = nil
+    local shortestDistance = Config.SilentAim.FOV
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and GetRole(player) == "Murderer" then
+            if player.Character and player.Character:FindFirstChild(Config.SilentAim.HitPart) then
+                local pos = player.Character[Config.SilentAim.HitPart].Position
+                local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(pos)
+                
+                if onScreen then
+                    local distance = (Vector2.new(screenPos.X, screenPos.Y) - UserInputService:GetMouseLocation()).Magnitude
+                    if distance < shortestDistance then
+                        shortestDistance = distance
+                        closestPlayer = player
+                    end
+                end
             end
         end
-    end)
+    end
+    
+    if closestPlayer then
+        -- Metatable hooking per silent aim
+        local mt = getrawmetatable(game)
+        setreadonly(mt, false)
+        local old_index = mt.__index
+        
+        mt.__index = function(self, key)
+            if self:IsA("Mouse") and key == "Hit" then
+                return closestPlayer.Character[Config.SilentAim.HitPart].CFrame
+            end
+            return old_index(self, key)
+        end
+        
+        setreadonly(mt, true)
+    end
 end
 
--- ==========================================
--- 4. ESP & VISUALS (HIGHLIGHT, RAYCAST, ROLE)
--- ==========================================
-local ESP = {}
-local HighlightFolder = Instance.new("Folder")
-HighlightFolder.Name = "ESP_Highlights"
-HighlightFolder.Parent = LocalPlayer
-
--- Funzione per rilevare il ruolo
-local function GetRole(Player)
-    local Char = Player.Character
-    if not Char then return "Innocente" end
+-- Auto Farm
+local function AutoFarm()
+    if not Config.AutoFarm.Enabled then return end
     
-    local Backpack = Player.Backpack
-    if Backpack:FindFirstChild("Knife") then return "Assassino" end
-    if Char:FindFirstChild("Gun") or Char:FindFirstChild("GunPart") then return "Sceriffo" end
-    return "Innocente"
+    local coins = Workspace:FindFirstChild("CoinContainer")
+    if coins then
+        for _, coin in ipairs(coins:GetChildren()) do
+            if coin:IsA("BasePart") then
+                if Config.AutoFarm.NoClip then
+                    LocalPlayer.Character.HumanoidRootPart.CFrame = coin.CFrame
+                else
+                    local tween = TweenService:Create(
+                        LocalPlayer.Character.HumanoidRootPart,
+                        TweenInfo.new(GetDistance(LocalPlayer.Character.HumanoidRootPart.Position, coin.Position) / Config.AutoFarm.Speed),
+                        {CFrame = coin.CFrame}
+                    )
+                    tween:Play()
+                    tween.Completed:Wait()
+                end
+                wait(0.1)
+            end
+        end
+    end
+    
+    -- Gun Drop Finder
+    local gunDrop = Workspace:FindFirstChild("GunDrop")
+    if gunDrop and Config.AutoFarm.CollectGuns then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = gunDrop.CFrame
+    end
 end
 
--- Loop principale per ESP
-RunService.RenderStepped:Connect(function()
-    if not Settings.EnableESP then return end
+-- Movement Hacks
+local function UpdateMovement()
+    if Humanoid then
+        Humanoid.WalkSpeed = Config.Movement.Speed
+        Humanoid.JumpPower = Config.Movement.JumpPower
+    end
     
-    for _, Player in pairs(Players:GetPlayers()) do
-        if Player == LocalPlayer then continue end
+    -- Fly
+    if Config.Movement.Fly then
+        if not FlyConnection then
+            FlyConnection = RunService.RenderStepped:Connect(function()
+                local camCF = workspace.CurrentCamera.CFrame
+                local moveDir = Vector3.new()
+                
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                    moveDir = moveDir + camCF.LookVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                    moveDir = moveDir - camCF.LookVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                    moveDir = moveDir - camCF.RightVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                    moveDir = moveDir + camCF.RightVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                    moveDir = moveDir + Vector3.new(0, 1, 0)
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+                    moveDir = moveDir - Vector3.new(0, 1, 0)
+                end
+                
+                if moveDir.Magnitude > 0 then
+                    HumanoidRootPart.Velocity = moveDir.Unit * Config.Movement.FlySpeed * 50
+                else
+                    HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+                end
+                
+                Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+            end)
+        end
+    else
+        if FlyConnection then
+            FlyConnection:Disconnect()
+            FlyConnection = nil
+        end
+    end
+    
+    -- NoClip
+    if Config.Movement.NoClip then
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+    
+    -- God Mode
+    if Config.Movement.GodMode then
+        if LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.Name = "Humanoid_GodMode"
+        end
+    end
+end
+
+-- X-Ray Vision
+local function ToggleXRay(state)
+    for _, part in ipairs(Workspace:GetDescendants()) do
+        if part:IsA("BasePart") and not part:IsDescendantOf(LocalPlayer.Character) then
+            if state then
+                part.Transparency = 0.7
+                if part:FindFirstChild("OriginalTransparency") then
+                    part:SetAttribute("OriginalTransparency", part.Transparency)
+                end
+            else
+                local original = part:GetAttribute("OriginalTransparency")
+                if original then
+                    part.Transparency = original
+                else
+                    part.Transparency = 0
+                end
+            end
+        end
+    end
+end
+
+-- Anti-Detection
+local function AntiDetection()
+    -- Anti AFK
+    if Config.AntiDetection.AntiAFK then
+        local vu = game:GetService("VirtualUser")
+        LocalPlayer.Idled:Connect(function()
+            vu:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+            wait(1)
+            vu:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+        end)
+    end
+    
+    -- Auto Leave on Staff
+    if Config.AntiDetection.AutoLeaveStaff then
+        for _, player in ipairs(Players:GetPlayers()) do
+            if table.find(StaffIds, player.UserId) then
+                LocalPlayer:Kick("Staff detected - Auto protection activated")
+            end
+        end
         
-        local Char = Player.Character
-        if not Char or not Char:FindFirstChild("HumanoidRootPart") then continue end
+        Players.PlayerAdded:Connect(function(player)
+            if table.find(StaffIds, player.UserId) then
+                LocalPlayer:Kick("Staff joined - Auto protection activated")
+            end
+        end)
+    end
+    
+    -- Streamer Mode
+    if Config.AntiDetection.StreamerMode then
+        LocalPlayer.Name = "Player_" .. math.random(1000, 9999)
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head") then
+            local head = LocalPlayer.Character.Head
+            if head:FindFirstChild("Nametag") then
+                head.Nametag:Destroy()
+            end
+        end
+    end
+end
+
+-- Trolling Functions
+local function FlingPlayer(player)
+    if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+        local bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.Velocity = Vector3.new(math.random(-5000, 5000), math.random(-5000, 5000), math.random(-5000, 5000))
+        bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bodyVelocity.Parent = player.Character.HumanoidRootPart
         
-        local Role = GetRole(Player)
-        local Root = Char:FindFirstChild("HumanoidRootPart")
-        local Head = Char:FindFirstChild("Head")
-        
-        -- Gestione Colori
-        local Color = Color3.fromRGB(255, 255, 255) -- Default
-        if Role == "Assassino" then Color = Color3.fromRGB(255, 0, 0)
-        elseif Role == "Sceriffo" then Color = Color3.fromRGB(0, 0, 255)
-        else Color = Color3.fromRGB(0, 255, 0) end
-        
-        -- Highlight (Chams)
-        local Highlight = HighlightFolder:FindFirstChild(Player.Name)
-        if not Highlight then
-            Highlight = Instance.new("Highlight")
-            Highlight.Name = Player.Name
-            Highlight.FillColor = Color
-            Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-            Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            Highlight.Adornee = Char
-            Highlight.Parent = HighlightFolder
+        game:GetService("Debris"):AddItem(bodyVelocity, 0.5)
+    end
+end
+
+local function ServerLag()
+    while Config.Trolling.LagServer do
+        for i = 1, 1000 do
+            Remotes:FireServer("Equip", math.random())
+        end
+        wait()
+    end
+end
+
+-- UI Creation
+local VisualTab = Window:MakeTab({
+    Name = "Visuals",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+local MurdererTab = Window:MakeTab({
+    Name = "Murderer",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+local SheriffTab = Window:MakeTab({
+    Name = "Sheriff",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+local FarmTab = Window:MakeTab({
+    Name = "Auto Farm",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+local MovementTab = Window:MakeTab({
+    Name = "Movement",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+local MiscTab = Window:MakeTab({
+    Name = "Misc",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+-- Visuals Section
+VisualTab:AddToggle({
+    Name = "Player ESP",
+    Default = false,
+    Callback = function(Value)
+        Config.ESP.Enabled = Value
+        if Value then
+            for _, player in ipairs(Players:GetPlayers()) do
+                CreateESP(player)
+            end
         else
-            Highlight.FillColor = Color
-            Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-        end
-        
-        -- Line of Sight (Raycast)
-        if Settings.EnableLineOfSight then
-            local IsVisible = false
-            local RaycastParams = RaycastParams.new()
-            RaycastParams.FilterDescendantsInstances = {Char}
-            RaycastParams.FilterType = Enum.RaycastFilterType.Exclude
-            
-            local Ray = Workspace:Raycast(Root.Position, (Head.Position - Root.Position).Unit * 8, RaycastParams)
-            if Ray then
-                if Ray.Instance and Ray.Instance:IsDescendantOf(Char) then IsVisible = true end
-            else
-                IsVisible = true
+            for _, esp in pairs(ESPObjects) do
+                esp.Highlight:Destroy()
+                esp.Billboard:Destroy()
             end
-            
-            -- Disegna la linea (Semplice Line)
-            if IsVisible then
-                -- Verde (Linea di vista)
-                -- Se vuoi una linea fisica, servirebbe un Beamservice, ma qui usiamo un semplice trucco VFX
-            else
-                -- Rosso (Nascosto)
-                -- Qui potresti creare una Linea di collisione
+            ESPObjects = {}
+        end
+    end
+})
+
+VisualTab:AddToggle({
+    Name = "X-Ray Vision",
+    Default = false,
+    Callback = function(Value)
+        ToggleXRay(Value)
+    end
+})
+
+VisualTab:AddColorpicker({
+    Name = "Murderer Color",
+    Default = Config.ESP.MurdererColor,
+    Callback = function(Value)
+        Config.ESP.MurdererColor = Value
+    end
+})
+
+-- Murderer Section
+MurdererTab:AddToggle({
+    Name = "Knife Aura",
+    Default = false,
+    Callback = function(Value)
+        Config.KillAura.Enabled = Value
+    end
+})
+
+MurdererTab:AddSlider({
+    Name = "Aura Range",
+    Min = 5,
+    Max = 25,
+    Default = 20,
+    Color = Color3.fromRGB(255,0,0),
+    Increment = 1,
+    Callback = function(Value)
+        Config.KillAura.Range = Value
+    end
+})
+
+MurdererTab:AddToggle({
+    Name = "Auto Throw",
+    Default = false,
+    Callback = function(Value)
+        Config.KillAura.AutoThrow = Value
+    end
+})
+
+MurdererTab:AddButton({
+    Name = "Teleport Kill All",
+    Callback = function()
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local oldCF = HumanoidRootPart.CFrame
+                HumanoidRootPart.CFrame = player.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, 2)
+                wait(0.1)
+                HumanoidRootPart.CFrame = oldCF
             end
         end
-        
-        -- Distanza Tracker
-        if Settings.ShowDistanceText then
-            local dist = math.floor((Root.Position - LocalPlayer.Character.PrimaryPart.Position).Magnitude)
-            if dist < 100 then
-                -- Disegna testo (Richiede TextLabel adornee, qui semplifichiamo stampando in console o creando un oggetto)
-                -- In uno script completo, useremmo una GUI, ma per Xeno usiamo un trucco veloce:
-                -- Creiamo o aggiorniamo un oggetto TextLabel nella root
-                local TextObj = Instance.new("BillboardGui")
-                TextObj.Name = "Dist_" .. Player.Name
-                TextObj.Adornee = Head
-                TextObj.AlwaysOnTop = true
-                TextObj.Size = UDim2.new(0, 50, 0, 20)
-                TextObj.StudsOffset = Vector3.new(0, 2, 0)
-                
-                local TextLabel = Instance.new("TextLabel")
-                TextLabel.Parent = TextObj
-                TextLabel.Size = UDim2.new(1, 0, 1, 0)
-                TextLabel.BackgroundTransparency = 1
-                TextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-                TextLabel.TextStrokeTransparency = 0.5
-                TextLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-                TextLabel.TextScaled = true
-                TextLabel.Text = dist .. " studs"
-                TextLabel.TextTransparency = 1 -- Nascondo finché non è vicino
-                
-                -- Fade in/out effetto
-                TweenService:Create(TextLabel, TweenInfo.fromScript(0.5),
+    end
+})
+
+-- Sheriff Section
+SheriffTab:AddToggle({
+    Name = "Silent Aim",
+    Default = false,
+    Callback = function(Value)
+        Config.SilentAim.Enabled = Value
+    end
+})
+
+SheriffTab:AddToggle({
+    Name = "Auto Shoot Murderer",
+    Default = false,
+    Callback = function(Value)
+        Config.SilentAim.AutoShoot = Value
+    end
+})
+
+SheriffTab:AddDropdown({
+    Name = "Aim Part",
+    Default = "Head",
+    Options = {"Head", "Torso", "HumanoidRootPart"},
+    Callback = function(Value)
+        Config.SilentAim.HitPart = Value
+    end
+})
+
+-- Farm Section
+FarmTab:AddToggle({
+    Name = "Auto Farm Coins",
+    Default = false,
+    Callback = function(Value)
+        Config.AutoFarm.Enabled = Value
+        Config.AutoFarm.CollectCoins = Value
+    end
+})
+
+FarmTab:AddToggle({
+    Name = "No Clip",
+    Default = false,
+    Callback = function(Value)
+        Config.AutoFarm.NoClip = Value
+    end
+})
+
+FarmTab:AddSlider({
+    Name = "Farm Speed",
+    Min = 10,
+    Max = 200,
+    Default = 50,
+    Color = Color3.fromRGB(255,255,0),
+    Increment = 10,
+    Callback = function(Value)
+        Config.AutoFarm.Speed = Value
+    end
+})
+
+-- Movement Section
+MovementTab:AddSlider({
+    Name = "WalkSpeed",
+    Min = 16,
+    Max = 500,
+    Default = 16,
+    Color = Color3.fromRGB(0,255,0),
+    Increment = 1,
+    Callback = function(Value)
+        Config.Movement.Speed = Value
+    end
+})
+
+MovementTab:AddSlider({
+    Name = "JumpPower",
+    Min = 50,
+    Max = 500,
+    Default = 50,
+    Color = Color3.fromRGB(0,255,0),
+    Increment = 1,
+    Callback = function(Value)
+        Config.Movement.JumpPower = Value
+    end
+})
+
+MovementTab:AddToggle({
+    Name = "Fly",
+    Default = false,
+    Callback = function(Value)
+        Config.Movement.Fly = Value
+    end
+})
+
+MovementTab:AddToggle({
+    Name = "No Clip",
+    Default = false,
+    Callback = function(Value)
+        Config.Movement.NoClip = Value
+    end
+})
+
+MovementTab:AddToggle({
+    Name = "God Mode",
+    Default = false,
+    Callback = function(Value)
+        Config.Movement.GodMode = Value
+    end
+})
+
+-- Misc Section
+MiscTab:AddToggle({
+    Name = "Anti AFK",
+    Default = true,
+    Callback = function(Value)
+        Config.AntiDetection.AntiAFK = Value
+    end
+})
+
+MiscTab:AddToggle({
+    Name = "Streamer Mode",
+    Default = false,
+    Callback = function(Value)
+        Config.AntiDetection.StreamerMode = Value
+    end
+})
+
+MiscTab:AddToggle({
+    Name = "Auto Leave on Staff",
+    Default = true,
+    Callback = function(Value)
+        Config.AntiDetection.AutoLeaveStaff = Value
+    end
+})
+
+MiscTab:AddButton({
+    Name = "Fling All Players",
+    Callback = function()
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                FlingPlayer(player)
+            end
+        end
+    end
+})
+
+MiscTab:AddButton({
+    Name = "Server Lag (Risk)",
+    Callback = function()
+        Config.Trolling.LagServer = not Config.Trolling.LagServer
+        if Config.Trolling.LagServer then
+            ServerLag()
+        end
+    end
+})
+
+-- Main Loops
+RunService.RenderStepped:Connect(function()
+    if Config.ESP.Enabled then
+        UpdateESP()
+    end
+    
+    if Config.KillAura.Enabled then
+        KnifeAura()
+    end
+    
+    if Config.SilentAim.Enabled then
+        SilentAim()
+    end
+    
+    UpdateMovement()
+end)
+
+spawn(function()
+    while true do
+        if Config.AutoFarm.Enabled then
+            AutoFarm()
+        end
+        wait(1)
+    end
+end)
+
+-- Player Added/Removing
+Players.PlayerAdded:Connect(function(player)
+    if Config.ESP.Enabled then
+        CreateESP(player)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    if ESPObjects[player] then
+        ESPObjects[player].Highlight:Destroy()
+        ESPObjects[player].Billboard:Destroy()
+        ESPObjects[player] = nil
+    end
+end)
+
+-- Character Respawn
+LocalPlayer.CharacterAdded:Connect(function(char)
+    Character = char
+    Humanoid = char:WaitForChild("Humanoid")
+    HumanoidRootPart = char:WaitForChild("HumanoidRootPart")
+    
+    -- Reapply god mode if enabled
+    if Config.Movement.GodMode then
+        wait(0.5)
+        Humanoid.Name = "Humanoid_GodMode"
+    end
+end)
+
+-- Initialize
+AntiDetection()
+DetectRoles()
+
+OrionLib:Init()
+
+print("MM2 Ultimate Script Loaded Successfully!")
+print("Executor: " .. (identifyexecutor and identifyexecutor() or "Unknown"))
